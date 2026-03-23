@@ -1,0 +1,57 @@
+name: Release Navigation Package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/navigation/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install
+
+      - name: Generate unique version
+        id: version
+        run: |
+          BASE=$(node -p "require('./packages/navigation/package.json').version")
+          COMMIT=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          VERSION="${BASE}-${TIMESTAMP}.${COMMIT}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build
+        run: |
+          cd packages/navigation
+          npx expo-module build
+          yarn build:plugin
+
+      - name: Publish to npm
+        run: |
+          cd packages/navigation
+          node -e "
+            const pkg = JSON.parse(require('fs').readFileSync('package.json','utf8'));
+            pkg.name = '@fanzzzd/expo-gaode-map-navigation';
+            pkg.version = '${{ steps.version.outputs.version }}';
+            delete pkg.scripts.prepare;
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
