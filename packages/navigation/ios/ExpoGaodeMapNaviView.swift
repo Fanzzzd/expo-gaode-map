@@ -150,6 +150,9 @@ public class ExpoGaodeMapNaviView: ExpoView {
   var showVectorline: Bool = true {
     didSet { driveView?.showVectorline = showVectorline }
   }
+  var showCompassEnabled: Bool = true {
+    didSet { driveView?.showCompass = showCompassEnabled }
+  }
   var showTrafficLights: Bool = true {
     didSet { driveView?.showTrafficLights = showTrafficLights }
   }
@@ -234,6 +237,7 @@ public class ExpoGaodeMapNaviView: ExpoView {
     driveView?.showTrafficButton = showTrafficButton
     driveView?.showGreyAfterPass = showGreyAfterPass
     driveView?.showVectorline = showVectorline
+    driveView?.showCompass = showCompassEnabled
     driveView?.showTrafficLights = showTrafficLights
     if lineWidth > 0 {
       driveView?.lineWidth = lineWidth

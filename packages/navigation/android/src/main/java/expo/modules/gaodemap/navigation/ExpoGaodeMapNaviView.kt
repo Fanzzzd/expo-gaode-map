@@ -64,6 +64,10 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
     private var startCoordinate: NaviLatLng? = null
     private var endCoordinate: NaviLatLng? = null
 
+    private var naviViewReady: Boolean = false
+    private var hasStartedNavi: Boolean = false
+    private var pendingShowUIElements: Boolean? = null
+
     private var lastAppliedTopPaddingPx: Int? = null
 
     private var topInsetPx: Int = 0
@@ -86,11 +90,15 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
 
         override fun onInitNaviSuccess() {
             Log.d("ExpoGaodeMapNaviView", "AMapNavi 初始化成功")
+            naviViewReady = true
+            applyShowUIElementsIfReady()
             onNavigationReady(emptyMap())
         }
 
         override fun onStartNavi(type: Int) {
             Log.d("ExpoGaodeMapNaviView", "导航开始: type=$type")
+            hasStartedNavi = true
+            applyShowUIElementsIfReady()
             onNavigationStarted(mapOf(
                 "type" to type,
                 "isEmulator" to (type == 1)
@@ -356,9 +364,8 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
             options.isNaviArrowVisible = isNaviArrowVisible // 显示导航箭头
             options.isSecondActionVisible = true // 显示辅助操作（如下个路口提示）
             options.isDrawBackUpOverlay = true // 绘制备用路线覆盖物
-            if(isVectorLineShow)
-            options.isLeaderLineEnabled
-            
+            // isLeaderLineEnabled 是只读属性，无法通过 options 设置
+
             // === 地图锁车和视角控制 ===
             options.isAutoLockCar = autoLockCar // 自动锁车
             options.lockMapDelayed = 5000L // 5秒后自动锁车（毫秒）
@@ -685,11 +692,40 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
         updateTopInsetPadding()
     }
 
+    private var showUIElementsRetryCount: Int = 0
+    private val showUIElementsMaxRetries: Int = 20
+
     fun applyShowUIElements(visible: Boolean) {
         showUIElements = visible
+        pendingShowUIElements = visible
+        showUIElementsRetryCount = 0
+        applyShowUIElementsIfReady()
+    }
+
+    private fun applyShowUIElementsIfReady() {
+        val value = pendingShowUIElements ?: showUIElements
+
+        // 如果要隐藏 UI 但导航还没开始，延迟应用，防止闪烁
+        if (!value && !hasStartedNavi) {
+            if (showUIElementsRetryCount >= showUIElementsMaxRetries) {
+                // 超过最大重试次数，强制应用
+                Log.d("ExpoGaodeMapNaviView", "showUIElements max retries reached, force applying: $value")
+            } else {
+                showUIElementsRetryCount++
+                pendingShowUIElements = value
+                naviView.postDelayed({
+                    applyShowUIElementsIfReady()
+                }, 100)
+                return
+            }
+        }
+
+        pendingShowUIElements = null
+        showUIElementsRetryCount = 0
         val options = naviView.viewOptions
-        options.isLayoutVisible = visible
+        options.isLayoutVisible = value
         naviView.viewOptions = options
+        Log.d("ExpoGaodeMapNaviView", "showUIElements applied: $value")
     }
 
     fun applyAndroidTrafficBarEnabled(enabled: Boolean) {
@@ -700,9 +736,12 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
     }
 
     fun applyShowTrafficButton(enabled: Boolean) {
-        isTrafficLayerEnabled = enabled
+        // Android AMapNaviViewOptions 没有独立的 "交通按钮" 控制
+        // 此 prop 在 Android 上映射为 isTrafficLine（路况彩色线）的开关
+        // trafficLayerEnabled 控制交通图层本身
+        isTrafficLine = enabled
         val options = naviView.viewOptions
-        options.isTrafficLayerEnabled = enabled
+        options.isTrafficLine = enabled
         naviView.viewOptions = options
     }
 
@@ -722,10 +761,8 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
 
     fun applyShowVectorline(enabled: Boolean){
         isVectorLineShow = enabled
-        val options = naviView.viewOptions
-        if(enabled)
-        options.isLeaderLineEnabled
-        naviView.viewOptions = options
+        // isLeaderLineEnabled 是只读属性，无法通过 viewOptions 设置
+        // 牵引线的显示由 AMapNaviView 内部根据导航状态自动控制
     }
 
     fun startNavigation(startLat: Double, startLng: Double, endLat: Double, endLng: Double, promise: expo.modules.kotlin.Promise) {
@@ -832,8 +869,10 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
     }
     
     fun applyTrafficLayerEnabled(enabled: Boolean) {
+        isTrafficLayerEnabled = enabled
         isTrafficLine = enabled
         val options = naviView.viewOptions
+        options.isTrafficLayerEnabled = enabled
         options.isTrafficLine = enabled
         naviView.viewOptions = options
     }
@@ -983,6 +1022,21 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
         }
     }
 
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        super.onLayout(changed, l, t, r, b)
+        // 确保 AMapNaviView 的内部子视图正确布局
+        // React Native 的 Yoga 布局系统可能不会触发子视图的 measure/layout
+        val width = r - l
+        val height = b - t
+        if (width > 0 && height > 0) {
+            naviView.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
+            )
+            naviView.layout(0, 0, width, height)
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         try {
@@ -992,22 +1046,16 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
             Log.e("ExpoGaodeMapNaviView", "Error resuming navi view", e)
         }
     }
-    
+
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         try {
             naviView.onPause()
-            naviView.onDestroy()
-            
-            // 停止语音播报
-            aMapNavi?.stopSpeak()
-            
-            // 移除监听器但保留 AMapNavi 实例（因为是单例）
-            aMapNavi?.removeAMapNaviListener(naviListener)
-            
-            Log.d("ExpoGaodeMapNaviView", "NaviView paused and destroyed")
+            // 不在 detach 时 destroy，因为 React Native 可能会在重新渲染时
+            // 触发 detach/reattach 循环，onDestroy 会永久销毁视图
+            Log.d("ExpoGaodeMapNaviView", "NaviView paused")
         } catch (e: Exception) {
-            Log.e("ExpoGaodeMapNaviView", "Error destroying navi view", e)
+            Log.e("ExpoGaodeMapNaviView", "Error pausing navi view", e)
         }
     }
     
@@ -1030,9 +1078,16 @@ class ExpoGaodeMapNaviView(context: Context, appContext: AppContext) : ExpoView(
     
     fun onDestroy() {
         try {
+            naviView.onPause()
             naviView.onDestroy()
+
+            // 停止语音播报
+            aMapNavi?.stopSpeak()
+
+            // 移除监听器但保留 AMapNavi 实例（因为是单例）
             aMapNavi?.removeAMapNaviListener(naviListener)
-            // AMapNavi 是单例，不需要手动 destroy
+
+            Log.d("ExpoGaodeMapNaviView", "NaviView destroyed")
         } catch (e: Exception) {
             Log.e("ExpoGaodeMapNaviView", "Error destroying navi view", e)
         }

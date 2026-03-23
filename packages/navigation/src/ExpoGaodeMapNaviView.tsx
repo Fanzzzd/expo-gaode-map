@@ -8,13 +8,22 @@ import { createLazyNativeViewManager } from './map/utils/lazyNativeViewManager';
 export interface ExpoGaodeMapNaviViewRef {
   /**
    * 开始导航
+   * @param start 起点坐标，传 null 则使用当前定位
+   * @param end 终点坐标
    */
-  startNavigation: (start: Coordinates | null, end: Coordinates, type: number) => Promise<void>;
-  
+  startNavigation: (start: Coordinates | null, end: Coordinates) => Promise<void>;
+
   /**
    * 停止导航
    */
   stopNavigation: () => Promise<void>;
+
+  /**
+   * 播放自定义语音
+   * @param text 要播报的文本
+   * @param forcePlay 是否强制播放（中断当前播报）
+   */
+  playCustomTTS: (text: string, forcePlay?: boolean) => Promise<{ success: boolean }>;
 }
 
 interface NativeExpoGaodeMapNaviViewRef {
@@ -25,6 +34,7 @@ interface NativeExpoGaodeMapNaviViewRef {
     endLongitude: number
   ) => Promise<void>;
   stopNavigation: () => Promise<void>;
+  playCustomTTS: (text: string, forcePlay: boolean) => Promise<{ success: boolean }>;
 }
 
 const getNativeView = createLazyNativeViewManager<
@@ -53,10 +63,10 @@ const getNativeView = createLazyNativeViewManager<
  *       naviType={0} // GPS 导航
  *       showCamera={true}
  *       enableVoice={true}
- *       onNaviInfoUpdate={(e) => {
+ *       onNavigationInfoUpdate={(e) => {
  *         console.log('剩余距离:', e.nativeEvent.pathRetainDistance);
  *       }}
- *       onArrive={() => {
+ *       onArriveDestination={() => {
  *         console.log('到达目的地！');
  *       }}
  *     />
@@ -67,12 +77,11 @@ const getNativeView = createLazyNativeViewManager<
 export const ExpoGaodeMapNaviView = React.forwardRef<ExpoGaodeMapNaviViewRef, ExpoGaodeMapNaviViewProps>((props, ref) => {
   const nativeRef = React.useRef<NativeExpoGaodeMapNaviViewRef | null>(null);
   const NativeView = React.useMemo(() => getNativeView(), []);
-  
+
   // 创建 API 引用
   const apiRef: ExpoGaodeMapNaviViewRef = React.useMemo(() => ({
-    startNavigation: async (start: Coordinates | null, end: Coordinates, type: number) => {
+    startNavigation: async (start: Coordinates | null, end: Coordinates) => {
       if (!nativeRef.current) throw new Error('ExpoGaodeMapNaviView not initialized');
-      // 将对象解构为单独的参数传递给原生层
       const startLat = start?.latitude ?? 0;
       const startLng = start?.longitude ?? 0;
       const endLat = end.latitude;
@@ -83,11 +92,15 @@ export const ExpoGaodeMapNaviView = React.forwardRef<ExpoGaodeMapNaviViewRef, Ex
       if (!nativeRef.current) throw new Error('ExpoGaodeMapNaviView not initialized');
       return nativeRef.current.stopNavigation();
     },
+    playCustomTTS: async (text: string, forcePlay: boolean = false) => {
+      if (!nativeRef.current) throw new Error('ExpoGaodeMapNaviView not initialized');
+      return nativeRef.current.playCustomTTS(text, forcePlay);
+    },
   }), []);
-  
+
   // 暴露 API 给外部 ref
   React.useImperativeHandle(ref, () => apiRef, [apiRef]);
-  
+
   return <NativeView ref={nativeRef} {...props} />;
 });
 

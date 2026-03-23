@@ -107,7 +107,11 @@ public class ExpoGaodeMapNaviViewModule: Module {
       Prop("showVectorline") { (view: ExpoGaodeMapNaviView, value: Bool) in
         view.showVectorline = value
       }
-      
+
+      Prop("showCompassEnabled") { (view: ExpoGaodeMapNaviView, value: Bool) in
+        view.showCompassEnabled = value
+      }
+
       Prop("showTrafficLights") { (view: ExpoGaodeMapNaviView, value: Bool) in
         view.showTrafficLights = value
       }

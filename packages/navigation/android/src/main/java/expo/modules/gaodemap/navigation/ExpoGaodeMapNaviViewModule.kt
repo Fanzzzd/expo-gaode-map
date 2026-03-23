@@ -151,6 +151,11 @@ class ExpoGaodeMapNaviViewModule : Module() {
       AsyncFunction("stopNavigation") { view: ExpoGaodeMapNaviView, promise: expo.modules.kotlin.Promise ->
         view.stopNavigation(promise)
       }
+
+      AsyncFunction("playCustomTTS") { view: ExpoGaodeMapNaviView, text: String, forcePlay: Boolean, promise: expo.modules.kotlin.Promise ->
+        val success = view.playCustomTTS(text, forcePlay)
+        promise.resolve(mapOf("success" to success))
+      }
     }
   }
 }
